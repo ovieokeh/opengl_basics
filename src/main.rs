@@ -6,25 +6,18 @@ use glow::HasContext;
 const VERTEX_SHADER_SRC: &str = r#"
     #version 410 core
     layout (location = 0) in vec3 aPos;
-    layout (location = 1) in vec2 aTexCoord;
-
-    out vec2 TexCoord;
 
     void main() {
         gl_Position = vec4(aPos, 1.0);
-        TexCoord = aTexCoord;
     }
 "#;
 
 const FRAGMENT_SHADER_SRC: &str = r#"
     #version 410 core
-    in vec2 TexCoord;
     out vec4 Fragcolour;
 
-    uniform sampler2D texture1;
-
     void main() {
-        Fragcolour = texture(texture1, TexCoord);
+        Fragcolour = vec4(1.0, 0.5, 0.2, 1.0);
     }
 "#;
 
@@ -42,53 +35,6 @@ unsafe fn compile_shader(
     } else {
         Err(gl.get_shader_info_log(shader))
     }
-}
-
-use std::path::Path;
-
-unsafe fn create_texture(gl: &glow::Context, path: &Path) -> glow::Texture {
-    let img = image::open(path)
-        .expect("Failed to load texture")
-        .flipv()
-        .into_rgba8();
-    let (width, height) = img.dimensions();
-    let data = img.into_raw();
-
-    let texture = gl.create_texture().unwrap();
-    gl.bind_texture(glow::TEXTURE_2D, Some(texture));
-    gl.tex_parameter_i32(
-        glow::TEXTURE_2D,
-        glow::TEXTURE_WRAP_S,
-        glow::CLAMP_TO_EDGE as i32,
-    );
-    gl.tex_parameter_i32(
-        glow::TEXTURE_2D,
-        glow::TEXTURE_WRAP_T,
-        glow::CLAMP_TO_EDGE as i32,
-    );
-    gl.tex_parameter_i32(
-        glow::TEXTURE_2D,
-        glow::TEXTURE_MIN_FILTER,
-        glow::LINEAR as i32,
-    );
-    gl.tex_parameter_i32(
-        glow::TEXTURE_2D,
-        glow::TEXTURE_MAG_FILTER,
-        glow::LINEAR as i32,
-    );
-    gl.tex_image_2d(
-        glow::TEXTURE_2D,
-        0,
-        glow::RGBA as i32,
-        width as i32,
-        height as i32,
-        0,
-        glow::RGBA,
-        glow::UNSIGNED_BYTE,
-        Some(&data),
-    );
-
-    texture
 }
 
 fn main() {
@@ -110,8 +56,8 @@ fn main() {
             glfw::WindowMode::Windowed,
         )
         .expect("Failed to create GLFW window.");
-
     // Make the window's context current
+
     window.make_current();
 
     // Load OpenGL functions
@@ -122,23 +68,22 @@ fn main() {
         gl.clear_color(0.1, 0.2, 0.3, 1.0);
     }
 
+    // Compile shaders
     let vertex_shader = unsafe {
         compile_shader(&gl, glow::VERTEX_SHADER, VERTEX_SHADER_SRC)
             .expect("Failed to compile vertex shader")
     };
+
     let fragment_shader = unsafe {
         compile_shader(&gl, glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SRC)
             .expect("Failed to compile fragment shader")
     };
 
-    let vertices: [f32; 15] = [
-        -0.5, -0.5, 0.0, 0.0, 0.0, 0.5, -0.5, 0.0, 1.0, 0.0, 0.0, 0.5, 0.0, 0.5, 1.0,
-    ];
-
     let program = unsafe {
         let program = gl
             .create_program()
             .expect("Failed to create shader program");
+
         gl.attach_shader(program, vertex_shader);
         gl.attach_shader(program, fragment_shader);
         gl.link_program(program);
@@ -156,6 +101,8 @@ fn main() {
         gl.delete_shader(fragment_shader);
     }
 
+    let vertices: [f32; 9] = [-0.5, -0.5, 0.0, 0.5, -0.5, 0.0, 0.0, 0.5, 0.0];
+
     // Create and bind VAO
     let vao = unsafe { gl.create_vertex_array().unwrap() };
     unsafe { gl.bind_vertex_array(Some(vao)) };
@@ -171,23 +118,12 @@ fn main() {
         );
     }
 
-    // Configure vertex attribute pointers
     unsafe {
-        let stride = 5 * std::mem::size_of::<f32>() as i32;
+        // Configure vertex attribute pointers
+        let stride = 3 * std::mem::size_of::<f32>() as i32;
         gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, stride, 0);
         gl.enable_vertex_attrib_array(0);
-        gl.vertex_attrib_pointer_f32(
-            1,
-            2,
-            glow::FLOAT,
-            false,
-            stride,
-            (3 * std::mem::size_of::<f32>()) as i32,
-        );
-        gl.enable_vertex_attrib_array(1);
     }
-
-    let texture = unsafe { create_texture(&gl, Path::new("texture.png")) };
 
     // Set up event handling
     window.set_key_polling(true);
@@ -200,6 +136,7 @@ fn main() {
             handle_event(&mut window, event);
         }
 
+        // Render the triangle
         unsafe {
             // Clear the colour buffer
             gl.clear(glow::COLOR_BUFFER_BIT);
@@ -208,18 +145,15 @@ fn main() {
             gl.use_program(Some(program));
 
             // Bind the VAO and draw the triangle
-
-            // Bind the texture
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, Some(texture));
             gl.bind_vertex_array(Some(vao));
             gl.draw_arrays(glow::TRIANGLES, 0, 3);
 
-            // Unbind VAO and VBO
+            // Unbind the VAO and shader program
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             gl.bind_vertex_array(None);
             gl.use_program(None);
         }
+
         // Swap buffers and poll events
         window.swap_buffers();
     }
